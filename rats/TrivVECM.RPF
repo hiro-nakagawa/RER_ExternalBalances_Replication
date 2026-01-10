@@ -1,0 +1,95 @@
+*Estimates trivariate VECM and produces impulse responses and variance decompostions
+*****************
+cal(q) 1970:01
+open data  DataRERExtBal.xlsx
+data(org=cols,format=xlsx) 1970:01 2019:04 rer nfa_gdp rerbis cumca_gdp cumval_gdp
+
+set rer = rer/100
+log rer
+set cumca = cumca_gdp
+set cumval = cumval_gdp
+
+*set sample period
+smpl 1970:01 2015:04
+
+*---------------
+*3 variable VECM
+
+***Unrestricted constant case
+**Option for unrestricted constant (intecept) is not available in @johmle of Rats.
+**Thus,cointegrating vector that follows is obtained using Eview.
+*(normalized)cointegrating vector and constant:
+compute betaq = 1.0 ; compute betacumca = -0.445 ; compute betacumval = -0.445
+*compute const = 0.148
+compute [vect] cointgbeta = ||betaq,betacumca,betacumval||
+display cointgbeta
+
+*Error correction term:
+equation(coeffs=||betaq,betacumca,betacumval||) ecteq *
+# rer cumca cumval
+
+*Estimate a vecm with the cointegrating vector
+system(model=ectmodel)
+variables rer cumca cumval
+det constant
+lags 1 to 2
+ect ecteq
+end(system)
+*
+estimate
+
+Compute sigma = %sigma
+Display sigma
+
+*Monte Carlo integration: obtain IRF and FEVD
+compute [vect[strings]] shocklabels=||"Permanent shock 1","Permanent shock 2","Transitory shock"||
+compute [vect[strings]] varlabels=||"RER","CA","VAL"||
+
+compute nsteps=50
+compute ndraws=1000
+
+source GNdoDrawsBS4.src
+
+@GNdoDrawsBS4(model=ectmodel,step=nsteps,draws=ndraws)
+*@GNdoDrawsBS3(model=ectmodel,step=nsteps,draws=ndraws,diff=||3||)
+source MCGraphIRF2.src
+@MCGraphIRF2(model=ectmodel,stddev=1.0,shocklabels=shocklabels,varlabels=||"RER","CUMCA","CUMVAL"||)
+
+source mcfevdtable.src
+
+@MCFEVDTable(model=ectmodel,stddev=1.0,horizons=||1,5,10,20,50||,$
+  varlabels=||"RER","CUMCA","CUMVAL"||,shocklabels=shocklabels,table=byvariables)
+
+*for CA and VAL
+compute %%responses =%%responses2
+
+source MCGraphIRF2.src
+@MCGraphIRF2(model=ectmodel,stddev=1.0,shocklabels=shocklabels,varlabels=||"RER","CA","VAL"||)
+
+
+source mcfevdtable.src
+
+@MCFEVDTable(model=ectmodel,stddev=1.0,horizons=||1,5,10,20,50||,$
+  varlabels=||"RER","CA","VAL"||,shocklabels=shocklabels,table=byvariables)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

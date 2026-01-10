@@ -1,0 +1,147 @@
+*@GNdoDraws2(MODEL=model name,other options)
+*Based largely on MCdoDraws.src
+*Does Monte Carlo draws for a VECM, Gonzalo-Ng factorization.
+*Generates a VECT[RECT] of the draws of the
+* responses for further processing by other procedures.
+*
+* Options:
+*  MODEL=model to analyze. This must be defined (using SYSTEM, VARIABLES,
+*   etc.) and estimated before you can use GNDoDraws2
+*  DRAWS=number of Monte Carlo draws
+*  STEPS=number of steps of impulse responses
+*  Diff=list of variables to take a difference
+*
+* Variables Defined:
+*  %%responses is a <<DRAWS>> vector of RECTANGULAR arrays, each of which
+*  has dimensions N^2 x <<STEPS>>. The responses of variable i to shock j
+*  at step s on draw d is at %%responses(d)((j-1)*N+i,s)
+*
+procedure GNdoDraws2
+*
+option model     model
+option integer   draws   100
+option integer   steps   20
+option vect[int] difference
+*
+local integer nvar
+local rect    fxx fwish fsigmad sigmau S factor factor1
+local integer wishdof
+local rect    betaols betau betadraw
+local vect    ix
+local vect    alphaorth
+local symm    sigmad
+local integer i j draw
+*
+if .not.%defined(model) {
+   disp "###GNDODraws(MODEL=model name,other options)"
+   return
+}
+compute nvar=%modelsize(model)
+if nvar<>2 {
+   disp "###GNDoDraws applies only to 2-variable models"
+   return
+}
+*
+* Standard setup for drawing from a LS est. of vecm
+*
+compute fxx    =%decomp(%xx)
+compute fwish  =%decomp(inv(%nobs*%sigma))
+compute wishdof=%nobs-%nreg
+compute betaols=%modelgetcoeffs(model)
+
+
+*
+local rect[series] impulses(nvar,nvar)
+*
+* These are global variables
+*
+declare vect[rect]   %%responses(draws)
+declare vect[rect]   %%responses2(draws)
+*
+infobox(action=define,progress,lower=1,upper=draws) "Monte Carlo Integration"
+do draw=1,draws
+   if %clock(draw,2)==1 {
+      compute sigmad  =%ranwisharti(fwish,wishdof)
+      compute fsigmad =%decomp(sigmad)
+      compute betau   =%ranmvkron(fsigmad,fxx)
+      compute betadraw=betaols+betau
+
+       }
+   else
+      compute betadraw=betaols-betau
+   compute %modelsetcoeffs(model,betadraw)
+   *
+   * Compute the GN decompostion factor
+   compute alpha=%vecmalpha
+
+   *matrix orthogonal to alpha:
+    compute alphaorth = %perp(alpha)
+    *matrix G
+    compute gmatrix=tr(alphaorth)~~tr(cointgbeta)
+    *sigma_u; ie, GE(ee')GÅf; ie HHÅf
+     compute sigmau=gmatrix*sigmad*tr(gmatrix)
+     *apply Choleski decomposition:
+     compute S=%decomp(sigmau)
+    *u will be now orthogonalized by using the factorzation of inv(gmatrix)*S;
+     compute factor1=inv(gmatrix)*S
+   *
+   *
+   * The identification process using the restriction detemines the shape, not the sign, of the shocks.
+   *Flip signs when needed
+   *
+   compute factor1=factor1*%diag(||1.0,-1.0||)
+
+   impulse(noprint,model=model,factor=factor1,results=impulses,steps=steps)
+
+   * Store the impulse responses
+   *
+   dim %%responses(draw)(nvar*nvar,steps)
+   ewise %%responses(draw)(i,j)=ix=%vec(%xt(impulses,j)),ix(i)
+
+   * difference the responses of NFA (for the CA)
+    diff impulses(2,1) 2 steps
+    diff impulses(2,2) 2 steps
+
+     dim %%responses2(draw)(nvar*nvar,steps)
+   ewise %%responses2(draw)(i,j)=ix=%vec(%xt(impulses,j)),ix(i)
+
+   infobox(current=draw)
+end do draw
+infobox(action=remove)
+*
+* Restore the original coefficients
+*
+compute %modelsetcoeffs(model,betaols)
+*
+end GNDoDraws2
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

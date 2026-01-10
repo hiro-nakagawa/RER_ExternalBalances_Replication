@@ -1,0 +1,365 @@
+*
+* @MCGraphIRF2(model=model used in generating responses,other options )
+* Graphs error bands for impulse response functions using the
+* information already computed in %%responses. These can be calculated
+* using @MCVARDoDraws or some similar procedure.
+*
+* %%responses should have the following structure:
+*   the number of draws is NDRAWS,
+*   the number of steps is NSTEPS
+*   the number of variables is NVAR and
+*   the number of shocks is NSHOCKS.
+*   (NSHOCKS often is equal to NVAR, but doesn't have to be).
+*
+* %%responses is a VECT[RECT] with outer dimensions NDRAWS. Each draw is
+* represented by a RECT array, with NVAR*NSHOCKS rows and NSTEPS
+* columns. The rows are blocked by shocks so the first set of NVAR
+* elements in a column are the responses to the first shock, the second
+* set are the responses to the second shock. If you %VEC a set of
+* impulse responses produced by IMPULSES, that's how they will be
+* blocked.
+*
+* Options:
+*   MODEL=model used in generating responses
+*   SHOCKLABELS=VECT[STRINGS] of labels for the shocks [dependent variables of model]
+*   VARLABELS=VECT[STRING] of labels for the variables [dependent variables of model]
+*
+*   INCLUDE=||list of dependent variables to show (in order, by position in model)|| [all]
+*      INCLUDE can be used to eliminate some variables which aren't of
+*      special interest or to rearrange the panes on a graph. For instance,
+*      in a 6 variable VAR, INCLUDE=||6,1,3,4|| will show only the responses
+*      of those four variables (based upon their positions in the model) and
+*      will put the 6th variable in the top left.
+*
+*   CENTER=[MEAN]/MEDIAN/INPUT
+*   IMPULSES=RECT[SERIES] of central impulse responses for the graph
+*      This chooses what is shown as the "estimate" of the IRF. MEAN and
+*      MEDIAN are the mean and median of the drawn responses. INPUT means
+*      that you are including an IMPULSES option with RECT[SERIES] which are
+*      to be used. This needs to be in the format created by the IMPULSE
+*      instruction.
+*
+*   PERCENTILES=||percentiles for lower and upper bounds|| [||.16,.84||]
+*   STDDEV=# of standard deviations from mean for lower and upper bounds [not used]
+*      STDDEV is used for doing error bands based upon multiples of the
+*      sample standard deviations. For instance, STDDEV=1.0 will give upper
+*      and lower bounds that are one standard deviation above and below the
+*      central response. PERCENTILES is the default.
+*
+*   HEADER=' title for graph '
+*   FOOTER=' footer for graph '
+*   PAGE=[ALL]/ONE/BYSHOCK/BYVARIABLE
+*   COLUMNS=# of columns on a page [depends upon number of graphs]
+*      The PAGE option selects the layout of a single page of graphs.
+*
+*      PAGE=ALL (the default) does all responses to all shocks on a single
+* 		 page (shocks in columns, dependent variables in rows). Note that the
+* 		 panes get a bit small when you get more than four variables.
+*
+*      PAGE=ONE does one combination of shock and variable per page.
+*
+* 		 PAGE=BYSHOCK does a separate page for each shock, with all responses
+* 		 arranged in one or more columns.
+*
+* 		 PAGE=BYVARIABLE does a separate page for each variable, with all
+* 		 shocks arranged in one or more columns.
+*
+*  WEIGHTS=series of (relative) weights on the draws (from importance
+*      sampling) [equal weights]. Note that this can dramatically slow down
+*      the calculation if you ask for percentiles and have many (5000+)
+*      draws.
+*
+*  [COMMONSCALE]/NOCOMMONSCALE
+*      COMMONSCALE uses a common graph scale for all graphs on a single page
+*      (for PAGE=BYSHOCK or PAGE=BYVARIABLE), or in a single row for
+*      PAGE=ALL. NOCOMMONSCALE allows each graph to have its own scale.
+*
+* Revision Schedule:
+*   06/2009 Stripped from montevar.src procedure. Options added.
+*   07/2010 Added WEIGHTS option
+*   02/2011 Added COMMONSCALE option
+*   03/2012 Added entry ranges to SSTATS instructions
+*   05/2012 Fixed problem with stray SPGRAPH(DONE) call
+*   09/2013 Add header for PAGE=ONE
+*
+procedure MCGraphIRF2
+*
+option model         model
+option vect[strings] shocklabels
+option vect[strings] varlabels
+option vector        percentiles  ||.16,.84||
+option real          stddev
+option choice        center       1   mean median input
+option rect[series]  impulses
+option string        header
+option string        footer
+option choice        page         1   all  one  byshock   byvariable
+option integer       columns
+option vect[integer] include
+option series        weights
+option switch        commonscale  1
+*
+local  vect[integer] grparms
+local  vect[strings] xlabel ylabel
+local  vect[integer] depvars yshow
+local  integer       draws steps nshocks nshow npercent
+local  vect[series]  upper lower upperx lowerx resp
+local  real          minlower maxupper sigma
+local  real          worksum totalweights
+local  integer       i j k
+local  vector        work
+local  vector        frac
+local  integer       ntargets pages nvert nhorz pagetoshow
+local  integer       shocklower shockupper varlower varupper
+local  string        gheader
+local  vect          request
+*
+declare vect[rect]   %%responses
+*
+if %rows(%%responses)==0 {
+   disp "####@MCGraphIRF - needs procedure to draw responses first (%%responses not defined)"
+   return
+}
+
+if .not.%defined(model) {
+   disp "Syntax: @MCGraphIRF(model=model used in generating responses,other options)"
+   return
+}
+
+if center==3.and..not.%defined(impulses) {
+   disp "####@MCGraphIRF(CENTER=INPUT) needs IMPULSES option"
+   return
+}
+*
+* Take the number of variables (targets) out of the model
+*
+compute ntargets=%modelsize(model)
+*
+* Hack the dimensions of everything else out of the <<%%responses>> array
+*
+compute draws=%rows(%%responses)
+compute steps=%cols(%%responses(1))
+compute nshocks=%rows(%%responses(1))/ntargets
+*
+dim work(draws)
+*
+* Set up the labels for the matrix of graphs
+*
+compute depvars=%modeldepvars(model)
+
+if %defined(include)
+   compute nshow=%rows(include),yshow=include
+else
+   compute nshow=ntargets,yshow=%seq(1,nshow)
+
+dim xlabel(nshocks) ylabel(nshow)
+
+if %defined(shocklabels)
+   ewise xlabel(i)=shocklabels(i)
+else
+   ewise xlabel(i)=%l(depvars(i))
+
+if %defined(varlabels)
+   ewise ylabel(i)=varlabels(yshow(i))
+else
+   ewise ylabel(i)=%l(depvars(yshow(i)))
+
+*
+* Save the graph parms and reset the sizes
+*
+
+compute grparms = %grparm()
+grparm hlabel 14 matrixlabels 12
+grparm  axislabel 35
+grparm vlavel 14
+*
+* Figure out how many percentiles we need, combining the requests from
+* the bands (in percentiles option) and center (if median).
+*
+dim request(0)
+compute npercent=0
+if %defined(percentiles).and..not.%defined(stddev)
+   compute npercent=%rows(percentiles)
+
+if center==2 {
+   if npercent>0
+      compute request=percentiles~~||.50||
+   else
+      compute request=||.50||
+}
+else
+if npercent>0
+   compute request=percentiles
+
+if page==1
+   compute pages=1,nvert=nshow,nhorz=nshocks
+else
+if page==2
+   compute pages=nshow*nshocks,nvert=nhorz=1
+else
+if page==3 {
+   compute pages=nshocks
+   if %defined(columns).and.columns>0
+      compute nhorz=columns
+   else
+      compute nhorz=fix(sqrt(nshow))
+   compute nvert=(nshow-1)/nhorz+1
+   }
+else
+if page==4 {
+   compute pages=nshow
+   if %defined(columns).and.columns>0
+      compute nhorz=columns
+   else
+      compute nhorz=fix(sqrt(nshocks))
+   compute nvert=(nshocks-1)/nhorz+1
+   }
+
+dim upper(nshocks) lower(nshocks) resp(nshocks)
+if npercent>2
+   dim upperx(nshocks) lowerx(nshocks)
+
+do pagetoshow=1,pages
+   if page==1 {
+      spgraph(header=header,footer=footer,xpos=both,xlab=xlabel, $
+        ylab=ylabel,vlab="Responses of",vfields=nshow,hfields=nshocks)
+      compute shocklower=1,shockupper=nshocks
+      compute varlower=1,varupper=nshow
+   }
+   else
+   if page==3 {
+      spgraph(footer="Responses to "+xlabel(pagetoshow),vfields=nvert,hfields=nhorz)
+      compute shocklower=pagetoshow,shockupper=pagetoshow
+      compute varlower=1,varupper=nshow
+   }
+   else
+   if page==4 {
+      spgraph(footer="Responses of "+ylabel(pagetoshow),vfields=nvert,hfields=nhorz)
+      compute shocklower=1,shockupper=nshocks
+      compute varlower=pagetoshow,varupper=pagetoshow
+   }
+   else
+   if page==2 {
+      compute shocklower=(pagetoshow-1)/nshow+1,shockupper=shocklower
+      compute varlower=%clock(pagetoshow,nshow),varupper=varlower
+   }
+   do i=varlower,varupper
+      compute minlower=maxupper=0.0
+      do j=shocklower,shockupper
+         set resp(j)  1 steps = 0.0
+         set lower(j) 1 steps = 0.0
+         set upper(j) 1 steps = 0.0
+         if npercent>2 {
+            set lowerx(j) 1 steps = 0.0
+            set upperx(j) 1 steps = 0.0
+         }
+         do k=1,steps
+            *
+            * Extract the record (across draws) for the response being graphed
+            *
+            ewise work(t)=%%responses(t)((j-1)*ntargets+yshow(i),k)
+            *
+            * Compute whatever percentiles are needed
+            *
+            if %defined(weights)
+               compute frac=%wfractiles(work,weights,request)
+            else
+               compute frac=%fractiles(work,request)
+            *
+            * Compute the mean if needed
+            *
+            if center==1.and.%defined(weights) {
+               sstats 1 draws work(t)*weights>>worksum  weights>>totalweights
+               compute resp(j)(k)=worksum/totalweights
+				}
+            else
+            if center==1
+               sstats(mean) 1 draws work(t)>>resp(j)(k)
+            else
+            if center==2
+               compute resp(j)(k)=frac(npercent+1)
+            else
+               compute resp(j)(k)=impulses(yshow(i),j)(k)
+
+            if %defined(stddev) {
+               if %defined(weights) {
+                  sstats 1 draws (work(t)-resp(j)(k))^2*weights>>worksum
+                  compute sigma=sqrt(worksum/totalweights)
+               }
+               else {
+                  sstats(mean) 1 draws (work(t)-resp(j)(k))^2>>worksum
+                  compute sigma=sqrt(worksum)
+               }
+               compute lower(j)(k)=resp(j)(k)-stddev*sigma
+               compute upper(j)(k)=resp(j)(k)+stddev*sigma
+            }
+            else {
+               if npercent>2 {
+                  compute lower(j)(k)=frac(1)
+                  compute lowerx(j)(k)=frac(2)
+                  compute upperx(j)(k)=frac(3)
+                  compute upper(j)(k)=frac(4)
+               }
+               else {
+                  compute lower(j)(k)=frac(1)
+                  compute upper(j)(k)=frac(2)
+               }
+            }
+         end do k
+         compute maxupper=%max(maxupper,%maxvalue(upper(j)))
+         compute minlower=%min(minlower,%minvalue(lower(j)))
+      end do j
+      *
+      if commonscale==0
+         compute maxupper=minlower=%na
+
+      do j=shocklower,shockupper
+         if page==3
+            compute gheader=ylabel(i)
+         else
+         if page==4
+            compute gheader=xlabel(j)
+         else
+         if page==2
+            compute gheader="Response of "+ylabel(i)+" to "+xlabel(j)
+         else
+            compute gheader=""
+         if page==1.and.npercent>2 {
+            graph(ticks,min=minlower,max=maxupper,number=0,header=gheader) 5 j i
+            # resp(j)  1 steps
+            # upper(j) 1 steps 2
+            # lower(j) 1 steps 2
+				# upperx(j) 1 steps 3
+				# lowerx(j) 1 steps 3
+			}
+			else
+			if page==1 {
+            graph(ticks,min=minlower,max=maxupper,number=0,header=gheader) 3 j i
+            # resp(j)  1 steps
+            # upper(j) 1 steps 2
+            # lower(j) 1 steps 2
+         }
+         else
+         if page<>1.and.npercent>2 {
+            graph(ticks,min=minlower,max=maxupper,number=0,header=gheader) 5
+            # resp(j)  1 steps
+            # upper(j) 1 steps 2
+            # lower(j) 1 steps 2
+				# upperx(j) 1 steps 3
+				# lowerx(j) 1 steps 3
+			}
+			else {
+            graph(ticks,min=minlower,max=maxupper,number=0,header=gheader) 3
+            # resp(j)  1 steps
+            # upper(j) 1 steps 2
+            # lower(j) 1 steps 2
+			}
+      end do j
+   end do i
+   if page<>2
+      spgraph(done)
+end do pagetoshow
+*
+grparm(recall=grparms)
+end MCGraphIRF2
+

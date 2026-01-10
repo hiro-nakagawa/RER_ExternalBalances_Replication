@@ -1,0 +1,125 @@
+* @BQDrawsmodif3(MODEL=model name,other options)
+* Modified @BQDoDraws
+* Does Monte Carlo draws for a 2-variable BQ factorization. The first
+* variable in the model is assumed to be GNP growth or something
+* analogous to it. This generates a VECT[RECT] of the draws of the
+* responses for further processing by other procedures.
+*
+* Options:
+*  MODEL=model to analyze. This must be defined (using SYSTEM, VARIABLES,
+*   etc.) and estimated before you can use BQDoDraws
+*  DRAWS=number of Monte Carlo draws
+*  STEPS=number of steps of impulse responses
+*  ACCUMULATE=list of variables to accumulate [||1||]
+*
+* Variables Defined:
+*  %%responses is a <<DRAWS>> vector of RECTANGULAR arrays, each of which
+*  has dimensions N^2 x <<STEPS>>. The responses of variable i to shock j
+*  at step s on draw d is at %%responses(d)((j-1)*N+i,s)
+*
+*
+procedure BQDoDrawsmodif3
+*
+option model     model
+option integer   draws   1000
+option integer   steps   48
+option vect[int] accum   ||1||
+*
+local integer nvar
+local rect    fxx fwish fsigmad factor
+local integer wishdof
+local rect    betaols betau betadraw
+local vect    ix
+local symm    sigmad
+local integer i j draw
+*
+if .not.%defined(model) {
+   disp "###BQDODraws(MODEL=model name,other options)"
+   return
+}
+compute nvar=%modelsize(model)
+if nvar<>2 {
+   disp "###BQDoDraws applies only to 2-variable models"
+   return
+}
+*
+* Standard setup for drawing from an OLS VAR
+*
+compute fxx    =%decomp(%xx)
+compute fwish  =%decomp(inv(%nobs*%sigma))
+compute wishdof=%nobs-%nreg
+compute betaols=%modelgetcoeffs(model)
+*
+local rect[series] impulses(nvar,nvar)
+*
+* These are global variables
+*
+declare vect[rect]   %%responses(draws)
+declare vect[rect]   %%responses2(draws)
+*
+infobox(action=define,progress,lower=1,upper=draws) "Monte Carlo Integration"
+do draw=1,draws
+   if %clock(draw,2)==1 {
+      compute sigmad  =%ranwisharti(fwish,wishdof)
+      compute fsigmad =%decomp(sigmad)
+      compute betau   =%ranmvkron(fsigmad,fxx)
+      compute betadraw=betaols+betau
+   }
+   else
+      compute betadraw=betaols-betau
+   compute %modelsetcoeffs(model,betadraw)
+   *
+   * Compute the BQ factor using the recalculated lag sums of the model
+   *
+   compute factor=%bqfactor(sigmad,%modellagsums(model))
+   *
+   * Flip sign when needed
+
+      compute factor=factor*%diag(||-1.0,1.0||)
+   impulse(noprint,model=model,factor=factor,results=impulses,steps=steps)
+   *
+   * Accumulate the responses (accum drer to get rer)as requested
+    *
+     if %defined(accum) {
+   do i=1,%rows(accum)
+     do j=1,%cols(impulses)
+      accum impulses(accum(i),j) 1 steps
+     end do j
+   end do i
+   }
+      * Store the impulse responses
+   *
+   dim %%responses(draw)(nvar*nvar,steps)
+   ewise %%responses(draw)(i,j)=ix=%vec(%xt(impulses,j)),ix(i)
+
+   *obtain impulse of NFA
+     accum impulses(2,1) 1 steps
+     accum impulses(2,2) 1 steps
+
+   dim %%responses2(draw)(nvar*nvar,steps)
+   ewise %%responses2(draw)(i,j)=ix=%vec(%xt(impulses,j)),ix(i)
+
+   infobox(current=draw)
+end do draw
+infobox(action=remove)
+*
+* Restore the original coefficients
+*
+compute %modelsetcoeffs(model,betaols)
+*
+end BQDoDraws
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

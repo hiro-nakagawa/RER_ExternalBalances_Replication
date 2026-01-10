@@ -1,0 +1,62 @@
+* Obtain results (FEDV and IRF)for VAR (dq, CA) using BQ restrictions
+******************
+cal(q) 1970:01
+open data  DataRERExtBal.xlsx
+data(org=cols,format=xlsx) 1970:01 2019:04 rer ca gdp rerbis cumca_gdp
+
+*set sample period:
+smpl 1970:01 2015:04
+
+set cumCA = cumca_gdp
+set rer = rer/100
+log rer
+set drer = rer-rer{1}
+set CA = ca/gdp
+*alternatively, use csgdp for a robustness check
+*set CA = cumCA-cumCA{1}
+
+
+
+display '--------'
+** Applying Blanchard-Quah for identification in the 2-variable VAR
+*2 variable VAR
+
+system(model=bqmodel2)
+variables drer ca
+lags 1 to 2
+det constant
+end(system)
+*
+estimate(resids=resids)
+
+compute [vect[strings]] shocklabels=||"Permanent shock","Transitory shock"||
+*compute [vect[strings]] varlabels=||"RER","CA (or NFA if accumulated)"||
+*
+source BQdoDrawsmodif3.src
+
+@BQDoDrawsmodif3(model=bqmodel2,draws=1000,step=50,accum=||1||)
+source MCGraphIRF3.src
+@MCGraphIRF3(model=bqmodel2,stddev=1.0,shocklabels=shocklabels,varlabels=||"RER","CA"||)
+*
+*disp "Table Variance Decomposition"
+source mcfevdtable.src
+
+@MCFEVDTable(model=bqmodel2,stddev=1.0,horizons=||1,5,10,20,50||,$
+  varlabels=||"RER","CA"||,shocklabels=shocklabels,table=byvariables)
+
+*for cumCA
+compute %%responses =%%responses2
+
+@MCGraphIRF(model=bqmodel2,stddev=1.0,shocklabels=shocklabels,varlabels=||"RER","cumCA"||)
+
+source mcfevdtable.src
+
+@MCFEVDTable(model=bqmodel2,stddev=1.0,horizons=||1,5,10,20,40||,$
+  varlabels=||"RER","cumCA"||,shocklabels=shocklabels,table=byvariables)
+
+
+
+
+
+
+

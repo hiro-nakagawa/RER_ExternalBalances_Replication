@@ -1,0 +1,85 @@
+*Obtain results for a bivariate VECM (Estimated VECM,variance decompositions,and impulse responses)
+*****************
+cal(q) 1970:01
+open data  DataRERExtBal.xlsx
+data(org=cols,format=xlsx) 1970:01 2019:04 rer nfa_gdp rerbis
+
+
+set NFA = nfa_gdp
+set rer = rer/100
+log rer
+
+*set sample period
+smpl 1970:01 2015:04
+print / rer
+
+*Unit root tests using Eviews; confirmed that RER and NFA are I(1)
+*Johanson cointegration tests conducted using Eviews
+*2 variables (RER and NFA) are cointegrated
+*Cointegrating vector below:a DOLS estimate (using Eviews)
+*Robustness checks:
+* Lag length:  2
+* Sample period 1970Q1-2019Q4
+* Coinetgrating vector (1,-xx) based on other estimate methods:
+*   FMOLS (1,-457); canonical regr (1,-0.459)
+* Adjustment parameter set to 0 when insignificant,
+* use GNdoDraws2a.src
+
+*---------------
+*2 variable VECM
+
+*(normalized)cointegrating vector:
+compute betaq = 1.0 ; compute betanfa = -0.445
+compute [vect] cointgbeta = ||betaq,betanfa||
+display cointgbeta
+
+*Error correction term:
+equation(coeffs=||betaq,betanfa||) ecteq *
+# rer nfa
+
+*estimate a vecm with the cointegrating vector
+system(model=ectmodel)
+variables rer nfa
+det constant
+lags 1 to 2
+ect ecteq
+end(system)
+*
+estimate
+
+
+*Monte Carlo integration:  IRF and FEVD
+compute [vect[strings]] shocklabels=||"Permanent shock","Transitory shock"||
+*compute [vect[strings]] varlabels=||"RER","NFA or CA if chosen"||
+
+**choose either option (the second one for robustness checks)
+source GNdoDraws2.src
+@GNdoDraws2(model=ectmodel,step=50,draws=1000)
+*source GNdoDraws2a.src
+*@GNdoDraws2(model=ectmodel,step=50,draws=1000)
+
+
+source MCGraphIRF3.src
+@MCGraphIRF3(commonscale,model=ectmodel,shocklabels=shocklabels,varlabels=||"RER","NFA"||)
+
+@MCFEVDTable(model=ectmodel,stddev=1.0,horizons=||1,2,10,20,50||,$
+  varlabels=||"RER","NFA"||,shocklabels=shocklabels,table=byvariables)
+
+*for CA
+compute %%responses =%%responses2
+
+@MCGraphIRF3(model=ectmodel,stddev=1.0,shocklabels=shocklabels,varlabels=||"RER","dNFA"||)
+
+source mcfevdtable.src
+
+@MCFEVDTable(model=ectmodel,stddev=1.0,horizons=||1,2,10,20,50||,$
+  varlabels=||"RER","dNFA"||,shocklabels=shocklabels,table=byvariables)
+
+
+
+
+
+
+
+
+

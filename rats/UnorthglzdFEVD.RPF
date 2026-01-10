@@ -1,0 +1,80 @@
+*We here obtain unorthogonalized variance decompositions.
+*****************
+cal(q) 1970:01
+open data  DataRERExtBal.xlsx
+data(org=cols,format=xlsx) 1970:01 2019:04 rer nfa_gdp rerbis
+
+
+set NFA = nfa_gdp
+set rer = rer/100
+log rer
+
+*set sample period
+smpl 1970:01 2015:04
+
+
+*Unit root tests using Eviews; confirmed that RER and NFA are I(1)
+*Johanson cointegration tests conducted using Eviews
+*2 variables (q,nfa) are cointegrated
+
+*---------------
+*2 variable VECM
+
+*Cointegrating vector is estimated (DOLS)using Eview.
+*(normalized)cointegrating vector :
+compute betaq = 1.0 ; compute betanfa = -0.419
+compute [vect] cointgbeta = ||betaq,betanfa||
+display cointgbeta
+
+*Error correction term:
+equation(coeffs=||betaq,betanfa||) ecteq *
+# rer nfa
+
+*estimate a vecm with the cointegrating vector
+system(model=ectmodel)
+variables rer nfa
+det constant
+lags 1 to 2
+ect ecteq
+end(system)
+*
+estimate
+compute sigma1=%sigma
+
+**fevd  using GN decomp.(for unorthogonalized fevd; and for checking)
+*matrix orthogonal to alpha:
+*declare vec alphaorth
+*declare rec alphaorth
+compute vecmalpha = %vecmalpha
+display vecmalpha
+Compute alphaorth = %perp(%vecmalpha)
+Display alphaorth
+
+*matrix G
+Compute gmatrix = tr(alphaorth)~~tr(cointgbeta)
+Display gmatrix
+
+*sigma_u; ie, GE(ee')G'; ie HH'
+*declare symm sigmau
+Compute sigmau = gmatrix*sigma1*tr(gmatrix)
+display sigmau
+
+*when applying Choleski decomposition;
+*Compute [rect] Smat = %decomp(sigmau)
+*disp Smat
+*u is now orthogonalized by using the factorzation of inv(gmatrix)*Smat;
+*compute factor1=inv(gmatrix)*Smat
+*display factor1
+
+*withput othrogonalization;
+compute factor1=inv(gmatrix)
+*The identification process using the restriction detemrines the shape, not the sign, of the shocks.
+*Flip signs when needed
+compute factor1=factor1*%diag(||1.0,-1.0||)
+display factor1
+@varirf(model=ectmodel,step=50,factor=factor1,errors,shocks=||"permanent","transitory"||)
+impulse(model=ectmodel,step=50,factor=factor1, labels=||"permanent","transitory"||)
+
+
+
+
