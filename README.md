@@ -127,7 +127,7 @@ This script outputs the Diebold–Mariano and Clark–West test statistics.
 
 Please cite the associated paper:
 
-*Nakagawa, H., & Chen, H. (2026). Real Exchange Rate Dynamics and External Balances: Econometric and Artificial Neural Network Analyses.*
+*Nakagawa, H., & Chen, H. (2026). Real Exchange Rate Dynamics and External Balances: Econometric and Artificial Neural Network Analyses.Journal of Economic Dynamics and Control 186, 105312*
 
 
 
