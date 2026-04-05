@@ -1,6 +1,8 @@
 ## *Real Exchange Rate Dynamics and External Balances: Econometric and Artificial Neural Network Analyses*  
 **Authors:** Hironobu Nakagawa and Hongyi Chen
 
+**Published in** Journal of Economic Dynamics & Control 186 (2026) 105312
+
 This repository contains all data and code required to replicate the empirical results in the paper. All scripts reproduce the **numerical outputs and figures** used in the tables and figures of the paper.
 
 - **Figures are generated directly by the code as they appear in the paper.**  
